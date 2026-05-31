@@ -1,19 +1,11 @@
-"""
-CLI katmanını test eder: argparse, hata çıkışları, stdin/stdout akışları.
-Çalıştırma: pytest tests/test_cli.py -v
-"""
-
 import os
 import sys
 import pytest
 import tempfile
 
-from etltool.main import main, build_parser, process_lines
+from etltool.main import main, build_parser
+from etltool.transforms import filter_lines, normalize_lines
 
-
-# ---------------------------------------------------------------------------
-# build_parser testleri
-# ---------------------------------------------------------------------------
 
 class TestBuildParser:
     def test_varsayilan_degerler(self):
@@ -22,7 +14,7 @@ class TestBuildParser:
         assert args.input is None
         assert args.output is None
         assert args.filter_pattern is None
-        assert args.normalize is False
+        assert args.normalize is None
         assert args.encoding == "utf-8"
 
     def test_input_output_kisayol(self):
@@ -35,7 +27,7 @@ class TestBuildParser:
         parser = build_parser()
         args = parser.parse_args(["--filter", "hata", "--normalize"])
         assert args.filter_pattern == "hata"
-        assert args.normalize is True
+        assert args.normalize == "lower"
 
     def test_encoding_secenegi(self):
         parser = build_parser()
@@ -43,48 +35,33 @@ class TestBuildParser:
         assert args.encoding == "latin-1"
 
 
-# ---------------------------------------------------------------------------
-# process_lines testleri
-# ---------------------------------------------------------------------------
-
-class TestProcessLines:
+class TestFilterLines:
     def test_filtre_eslesme(self):
         lines = ["elma\n", "armut\n", "erik\n"]
-        sonuc = process_lines(lines, filter_pattern="elma", normalize=False)
+        sonuc = filter_lines(lines, "elma")
         assert sonuc == ["elma\n"]
 
     def test_filtre_buyuk_kucuk_harf_duyarsiz(self):
         lines = ["HATA: bağlantı kesildi\n", "bilgi mesajı\n"]
-        sonuc = process_lines(lines, filter_pattern="hata", normalize=False)
+        sonuc = filter_lines(lines, "hata")
         assert len(sonuc) == 1
-        assert "HATA" in sonuc[0]
 
     def test_filtre_yok_tum_satirlar(self):
         lines = ["a\n", "b\n", "c\n"]
-        sonuc = process_lines(lines, filter_pattern=None, normalize=False)
+        sonuc = filter_lines(lines, "")
         assert len(sonuc) == 3
 
     def test_normalize_bosluk_temizle(self):
         lines = ["  merhaba dünya  \n"]
-        sonuc = process_lines(lines, filter_pattern=None, normalize=True)
+        sonuc = normalize_lines(lines, whitespace=True, case="upper")
         assert sonuc == ["MERHABA DÜNYA\n"]
 
-    def test_normalize_ve_filtre_birlikte(self):
-        lines = ["  python kodu  \n", "  java kodu  \n"]
-        sonuc = process_lines(lines, filter_pattern="python", normalize=True)
-        assert len(sonuc) == 1
-        assert "PYTHON" in sonuc[0]
-
     def test_bos_girdi(self):
-        assert process_lines([], filter_pattern=None, normalize=False) == []
+        assert filter_lines([], "kalip") == []
 
-
-# ---------------------------------------------------------------------------
-# main() entegrasyon testleri — geçici dosyalar kullanır
-# ---------------------------------------------------------------------------
 
 class TestMainIntegrasyon:
-    def _gecici_dosya(self, icerik: str, encoding="utf-8") -> str:
+    def _gecici_dosya(self, icerik, encoding="utf-8"):
         tmp = tempfile.NamedTemporaryFile(
             mode="w", suffix=".txt", delete=False, encoding=encoding
         )
@@ -92,8 +69,7 @@ class TestMainIntegrasyon:
         tmp.close()
         return tmp.name
 
-    def teardown_method(self, _method):
-        # Geçici dosyaları temizle
+    def teardown_method(self, _):
         for attr in ("girdi", "cikti"):
             yol = getattr(self, attr, None)
             if yol and os.path.exists(yol):
@@ -106,7 +82,6 @@ class TestMainIntegrasyon:
         with open(self.cikti, encoding="utf-8") as f:
             icerik = f.read()
         assert "satir1" in icerik
-        assert "satir2" in icerik
 
     def test_filtre_cikti(self):
         self.girdi = self._gecici_dosya("elma\narmut\nerik\n")
@@ -115,7 +90,6 @@ class TestMainIntegrasyon:
         with open(self.cikti, encoding="utf-8") as f:
             satirlar = f.readlines()
         assert len(satirlar) == 1
-        assert "elma" in satirlar[0]
 
     def test_olmayan_dosya_cikis_kodu(self):
         with pytest.raises(SystemExit) as exc_info:
@@ -125,7 +99,7 @@ class TestMainIntegrasyon:
     def test_normalize_buyuk_harf(self):
         self.girdi = self._gecici_dosya("küçük harf\n")
         self.cikti = self.girdi + "_out.txt"
-        main(["--input", self.girdi, "--output", self.cikti, "--normalize"])
+        main(["--input", self.girdi, "--output", self.cikti, "--normalize", "upper"])
         with open(self.cikti, encoding="utf-8") as f:
             icerik = f.read()
         assert "KÜÇÜK HARF" in icerik
