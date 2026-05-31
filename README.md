@@ -1,61 +1,67 @@
-# etltool — CLI ETL Aracı (Ahmet Özdoğan Branch)
+# etltool — CLI ETL Aracı (Şifanur Karakılçık Branch)
 
-> Branch: `feature/cli-core`
+> Branch: `feature/etl-transform`
 
-Komut satırından dosya okuyan, satırları filtreleyen/normalleştiren ve çıktı üreten küçük bir ETL (Extract–Transform–Load) aracı.
+Komut satırından dosya okuyan, satırları filtreleyen, normalleştiren, birleştiren ve tekilleştiren küçük bir ETL aracı.
 
 ---
 
 ## Kurulum
 
 ```bash
-# Bağımlılıkları kur
 pip install -r requirements.txt
-
-# Paketi geliştirme modunda yükle (isteğe bağlı)
-pip install -e .
+pip install -e .   # opsiyonel — konsol giriş noktası için
 ```
 
 ---
 
 ## Kullanım
 
-### Temel kullanım — dosyadan dosyaya
+### 1. Filtrele — yalnızca "istanbul" içeren satırları al
 ```bash
-python -m etltool.main --input ornek_girdi.csv --output cikti.csv
+python -m etltool.main --input ornek_girdi.csv --filter "istanbul" --output istanbul.csv
 ```
 
-### Filtre uygula — yalnızca "istanbul" içeren satırları al
+### 2. Hatalı satırları dışarıda bırak + normalleştir
 ```bash
-python -m etltool.main --input ornek_girdi.csv --filter "istanbul" --output istanbul_kayitlar.csv
+python -m etltool.main --input ornek_girdi.csv --filter "HATA" --exclude --normalize lower --output temiz.csv
 ```
 
-### Normalleştir + stdin/stdout akışı
+### 3. İki dosyayı birleştir, tekrarları kaldır, büyük harfe çevir
 ```bash
-cat ornek_girdi.csv | python -m etltool.main --normalize --output -
+python -m etltool.main --merge dosya1.csv dosya2.csv --dedup --normalize upper --output birlesik.csv
 ```
 
-### Farklı dosya kodlaması
-```bash
-python -m etltool.main --input eski_dosya.txt --encoding latin-1 --output cikti.txt
-```
+### Ek örnekler
 
-### Konsol giriş noktası (pip install -e . sonrası)
 ```bash
-etltool --input ornek_girdi.csv --filter "hata" --output -
+# stdin'den oku, stdout'a yaz
+cat ornek_girdi.csv | python -m etltool.main --normalize lower
+
+# Özel karakterleri temizle
+python -m etltool.main --input ornek_girdi.csv --remove-special --output temiz.csv
+
+# Dosyalar arasına ayırıcı ekle
+python -m etltool.main --merge a.csv b.csv --separator --output birlesik.csv
 ```
 
 ---
 
 ## Argümanlar
 
-| Argüman | Kısa | Açıklama |
-|---|---|---|
-| `--input` | `-i` | Girdi dosyası. Belirtilmezse stdin kullanılır. |
-| `--output` | `-o` | Çıktı dosyası. Belirtilmezse stdout. `-` de stdout anlamına gelir. |
-| `--filter` | `-f` | Yalnızca bu kalıbı içeren satırları tutar (büyük/küçük harf duyarsız). |
-| `--normalize` | `-n` | Baş/son boşlukları temizler, büyük harfe çevirir. |
-| `--encoding` | `-e` | Dosya kodlaması (varsayılan: `utf-8`). |
+| Argüman | Açıklama |
+|---|---|
+| `--input`, `-i` | Girdi dosyası. Belirtilmezse stdin. |
+| `--output`, `-o` | Çıktı dosyası. Belirtilmezse stdout. `-` de stdout. |
+| `--merge DOSYA [DOSYA ...]` | Birleştirilecek ek dosyalar. |
+| `--filter`, `-f` | Yalnızca kalıbı içeren satırları tut. |
+| `--exclude` | `--filter` ile birlikte: eşleşenleri ÇIKAR. |
+| `--normalize [lower\|upper\|title]` | Harf büyüklüğü normalleştirmesi. |
+| `--no-whitespace` | Boşluk normalleştirmesini kapat. |
+| `--remove-special` | Özel karakterleri kaldır. |
+| `--dedup` | Tekrarlı satırları kaldır. |
+| `--separator` | Birleştirilen dosyalar arasına `---` ekle. |
+| `--encoding`, `-e` | Dosya kodlaması (varsayılan: `utf-8`). |
 
 ---
 
@@ -65,8 +71,8 @@ etltool --input ornek_girdi.csv --filter "hata" --output -
 # Tüm testler
 pytest tests/ -v
 
-# Yalnızca CLI testleri
-pytest tests/test_cli.py -v
+# Yalnızca dönüşüm testleri
+pytest tests/test_transforms.py -v
 
 # Kısa çıktı
 pytest tests/
@@ -80,11 +86,12 @@ pytest tests/
 etltool/
 ├── etltool/
 │   ├── __init__.py
-│   ├── __main__.py      ← python -m etltool desteği
-│   └── main.py          ← CLI giriş noktası (argparse)
+│   ├── __main__.py       ← python -m etltool desteği
+│   ├── main.py           ← CLI giriş noktası
+│   └── transforms.py     ← ETL dönüşüm fonksiyonları
 ├── tests/
 │   ├── __init__.py
-│   └── test_cli.py      ← CLI testleri
+│   └── test_transforms.py
 ├── ornek_girdi.csv
 ├── pyproject.toml
 ├── requirements.txt
@@ -93,11 +100,13 @@ etltool/
 
 ---
 
-## Hata Mesajları
+## transforms.py — Fonksiyon Özeti
 
-| Durum | Çıkış Kodu |
+| Fonksiyon | Ne Yapar? |
 |---|---|
-| Dosya bulunamadı | 2 |
-| Kodlama hatası (açılırken) | 3 |
-| Dosya okuma sırasında kodlama hatası | 3 |
-| Dosya açma/yazma OS hatası | 4 / 5 |
+| `filter_lines(lines, pattern)` | Kalıbı içeren satırları döndürür |
+| `exclude_lines(lines, pattern)` | Kalıbı içeren satırları çıkarır |
+| `normalize_lines(lines, ...)` | Boşluk + harf + unicode normalleştirme |
+| `merge_files(paths)` | Dosyaları okur ve birleştirir |
+| `merge_lines(sources)` | Bellek içi liste birleştirme |
+| `deduplicate(lines)` | Tekrarlı satırları kaldırır |
